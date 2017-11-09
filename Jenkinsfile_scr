@@ -32,7 +32,7 @@ node {
            sh 'mvn test'
            }
          } finally {
-          junit 'target/surefire-reports/*.xml'
+          //junit 'target/surefire-reports/*.xml'
          }
     }
     stage('Integration test') {
@@ -43,7 +43,7 @@ node {
               sh 'mvn verify -Dskip.surefire.tests -e'
           }
         } finally {
-          junit 'target/failsafe-reports/*.xml'
+          //junit 'target/failsafe-reports/*.xml'
         }
     }
 
