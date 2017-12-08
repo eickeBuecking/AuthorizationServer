@@ -40,7 +40,7 @@ public class AuthServerConfig extends AuthorizationServerConfigurerAdapter {
             .authorizedGrantTypes("authorization_code", "password")
             .scopes("read","write")
             .autoApprove(true)
-        // .accessTokenValiditySeconds(3600)
+            .accessTokenValiditySeconds(3600)
         ; // 1 hour
     }
     @Bean
