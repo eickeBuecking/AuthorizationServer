@@ -1,86 +1,91 @@
 package de.eicke.authentication;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Primary;
-import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.config.annotation.authentication.configuration.EnableGlobalAuthentication;
-import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.config.annotation.web.builders.WebSecurity;
-import org.springframework.security.core.userdetails.User;
-import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.oauth2.config.annotation.configurers.ClientDetailsServiceConfigurer;
 import org.springframework.security.oauth2.config.annotation.web.configuration.AuthorizationServerConfigurerAdapter;
 import org.springframework.security.oauth2.config.annotation.web.configuration.EnableAuthorizationServer;
 import org.springframework.security.oauth2.config.annotation.web.configurers.AuthorizationServerEndpointsConfigurer;
 import org.springframework.security.oauth2.config.annotation.web.configurers.AuthorizationServerSecurityConfigurer;
-import org.springframework.security.oauth2.provider.token.DefaultTokenServices;
-import org.springframework.security.oauth2.provider.token.TokenStore;
 import org.springframework.security.oauth2.provider.token.store.JwtAccessTokenConverter;
 import org.springframework.security.oauth2.provider.token.store.JwtTokenStore;
-import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 
 @Configuration
 @EnableAuthorizationServer
-@EnableGlobalAuthentication
 public class AuthServerConfig extends AuthorizationServerConfigurerAdapter {
+	private static final Logger log = LoggerFactory.getLogger(AuthServerConfig.class);
+    @Value("${config.oauth2.privateKey}")
+    private String privateKey;
+
+    @Value("${config.oauth2.publicKey}")
+    private String publicKey;
+
     @Autowired
     private AuthenticationManager authenticationManager;
 
-    @Override
-    public void configure(final AuthorizationServerSecurityConfigurer oauthServer) throws Exception {
-        oauthServer.allowFormAuthenticationForClients();
-    }
-    
-
-    @Override
-    public void configure(final ClientDetailsServiceConfigurer clients) throws Exception {
-        clients.inMemory()
-            .withClient("eicke")
-            .secret("geheim")
-            .authorizedGrantTypes("authorization_code", "password")
-            .scopes("read","write")
-            .autoApprove(true)
-            .accessTokenValiditySeconds(3600)
-        ; // 1 hour
-    }
     @Bean
-    public TokenStore tokenStore() {
-        return new JwtTokenStore(accessTokenConverter());
-    }
-    @Bean
-    public JwtAccessTokenConverter accessTokenConverter() {
+    public JwtAccessTokenConverter tokenEnhancer() {
+        log.info("Initializing JWT with public key:\n" + publicKey);
         JwtAccessTokenConverter converter = new JwtAccessTokenConverter();
-        converter.setSigningKey("123");
+        converter.setSigningKey(privateKey);
+        converter.setVerifierKey(publicKey);
         return converter;
     }
 
+    @Bean
+    public JwtTokenStore tokenStore() {
+        return new JwtTokenStore(tokenEnhancer());
+    }
+
+    /**
+     * Defines the security constraints on the token endpoints /oauth/token_key and /oauth/check_token
+     * Client credentials are required to access the endpoints
+     *
+     * @param oauthServer
+     * @throws Exception
+     */
     @Override
-    public void configure(final AuthorizationServerEndpointsConfigurer endpoints) throws Exception {
-        endpoints.userDetailsService(userDetailsService());
-        endpoints.tokenStore(tokenStore())
-        .accessTokenConverter(accessTokenConverter())
-        .authenticationManager(authenticationManager);
+    public void configure(AuthorizationServerSecurityConfigurer oauthServer) throws Exception {
+        oauthServer
+                .tokenKeyAccess("isAnonymous() || hasRole('ROLE_TRUSTED_CLIENT')") // permitAll()
+                .checkTokenAccess("hasRole('TRUSTED_CLIENT')"); // isAuthenticated()
     }
-    @Bean
-    @Primary
-    public DefaultTokenServices tokenServices() {
-        DefaultTokenServices defaultTokenServices = new DefaultTokenServices();
-        defaultTokenServices.setTokenStore(tokenStore());
-        defaultTokenServices.setSupportRefreshToken(true);
-        return defaultTokenServices;
+
+    /**
+     * Defines the authorization and token endpoints and the token services
+     *
+     * @param endpoints
+     * @throws Exception
+     */
+    @Override
+    public void configure(AuthorizationServerEndpointsConfigurer endpoints) throws Exception {
+        endpoints
+
+                // Which authenticationManager should be used for the password grant
+                // If not provided, ResourceOwnerPasswordTokenGranter is not configured
+                .authenticationManager(authenticationManager)
+
+                        // Use JwtTokenStore and our jwtAccessTokenConverter
+                .tokenStore(tokenStore())
+                .accessTokenConverter(tokenEnhancer())
+        ;
     }
-    @Bean
-	public UserDetailsService userDetailsService() throws Exception {
-		InMemoryUserDetailsManager manager = new InMemoryUserDetailsManager();
-		manager.createUser(
-				User.withUsername("joe").password("456").roles("USER").build());
-		manager.createUser(
-				User.withUsername("john").password("987").roles("GUEST").build());
-		return manager;
-	}
-    
-              
+
+    @Override
+    public void configure(ClientDetailsServiceConfigurer clients) throws Exception {
+        clients.inMemory()
+                .withClient("eicke").secret("geheim")
+                .authorities("ROLE_TRUSTED_CLIENT")
+                .authorizedGrantTypes("client_credentials", "password", "authorization_code", "refresh_token")
+                .scopes("read", "write")
+                .redirectUris("http://localhost:8080/client/")
+        ;
+    }
+
 }
+    
